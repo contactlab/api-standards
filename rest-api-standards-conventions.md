@@ -48,6 +48,7 @@ Compatibility is broken when:
  * an property is removed from a resource
  * a resource is removed from an API
  * the type or the semantic of a property is changed
+ * a URI structure is changed
 
 Moving from a major version to another is an expensive process. We must design a public API's thinking of multi-years life cycles.
 
@@ -74,6 +75,7 @@ Please respect the following conventions:
 We've chosen to represent our resources exclusively in JSON format (media type: application/json).
 
 Do use camel casing for property names. Eg.
+
  * firstName is OK
  * first_name or FirstName are not OK.
 
@@ -92,32 +94,48 @@ A URI representing a collection resource that can be paginated should support th
 
 #### Sorting
 
-A URI representing a collection resource that can be ordered should support the optional query parameter ***sort***. The parameter is a comma-separated list of values containing the name of the sorting field, optionally followed by the plus sign and the sorting direction (**asc**, **desc**). Eg. https://myapi.com/books?sort=title+desc,author+asc
+A URI representing a collection resource that can be ordered should support many istances of the query parameter ***sort***. The parameter value is the name of the property you want to sort the results on. Optionally, the sorting property can be followed by the sorting direction (**asc**, **desc**).
+
+Eg. https://myapi.com/books?sort=author,asc&sort=title,desc
+
+Please, describe the sorting options in the resource collection documentation.
 
 #### Standard JSON representation of a page resource
 
 The resource should contains the following objects and properties:
 
 ```yaml
-page:
+CollectionPageResource:
+  title: Resource collection page
   type: object
   properties:
-    size:
-      type: integer
-      description: Size of the page
-    totalElements:
-      type: integer
-      description: Total elements in the collection
-    totalPages:
-      type: integer
-      description: Total pages of the collection
-    number:
-      type: integer
-      description: Number of the current page
-elements:
-  description: Elements contained in the page
-  type: array
+    page:
+      type: object
+      properties:
+        size:
+          type: integer
+          description: Size of the page
+        totalElements:
+          type: integer
+          description: Total elements in the collection
+        totalUnfilteredElements:
+          type: integer
+          description: Total elements in the unfiltered collection
+        totalPages:
+          type: integer
+          description: Total pages of the collection
+        number:
+          type: integer
+          description: Number of the current page
+      required: [size, number]            
+    elements:
+      description: Elements contained in the page
+      type: array
+      items:
+        type: object
+  required: [elements]
 ```
+In the case of a not paginated resource, use only the elements property.
 
 ### Resource: reference expansion and partial representations
 
@@ -134,7 +152,7 @@ GET https://myapi.com/books/1
 ```json
  {
   "title": "A book",
-  "authorId": "jd298232h2388jd"
+  "authorId": "550e8400-e29b-41d4-a716-446655440000"
  }
 ```
 
@@ -144,7 +162,7 @@ GET https://myapi.com/books/1?expand=author
  {
   "title": "A book",
   "author": {
-    "id": "jd298232h2388jd",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "name": "Joe The Programmer"
   }
  }
@@ -154,15 +172,32 @@ The parameter **expand** can be a comma-separated list of values.
 
 #### Partial resource representation
 
-When the full representation of a resource is too expensive in terms of payload/parsing, an alternate compact representation can be served. The client can request the alternate representation using the parameter **style**
+When the full representation of a resource is too expensive in terms of payload/parsing, a partial representation of the resource can requested.
+
+Please, use this patterns on specific resources and document it.
+
+The following methods can be used in collection resources as well.
+
+##### Method 1: style
+
+The client can request a compact representation using the parameter **style**
 
 Eg.
 
 GET https://api.co/users/123?style=compact
 
-The parameter can be used in collection resources as well.
 
 The only allowed value for the parameter **style** is **compact**.  Other styles will be allowed after real use cases will be presented.
+
+##### Method 2: fields
+
+The client can filter resource properties using the parameter **fields**
+
+Eg.
+
+GET https://api.co/users/123?fields=email,name
+
+The parameter is a comma-separated list of strings
 
 ### HTTP methods
 
@@ -179,15 +214,15 @@ Use HTTP methods according to their semantics:
 | DELETE  | not safe, idempotent - resource deletion (may be soft)  |
 | OPTIONS | safe - describe possible actions on the resource        |
 
-#### Method override
-
-Using the POST method and the header *X-HTTP-Method-Override* must be possible to override every HTTP method.  
-
 #### Partial updates
 
 For partial updates the API must accept *PATCH* and a partial representation of the resource. The partial representation is a JSON document without properties that don't need to be updated.
 
 Remember that *PUT* is idempotent and hence the client must supply a full resource representation.
+
+#### Method override
+
+Using the POST method and the header *X-HTTP-Method-Override* must be possible to override every HTTP method.  
 
 ### HTTP status codes
 
@@ -201,6 +236,8 @@ Use appropriate HTTP status codes when answering requests:
 | 4xx: | You messed up :-D |
 | 5xx: | I messed up :-(   |
 
+Reference: https://httpstatusdogs.com/
+
 #### Some common cases
  * Use *201 Created* after a resource has been created
  * Use *204 No Content* in case like DELETE with no content
@@ -210,16 +247,39 @@ Use appropriate HTTP status codes when answering requests:
 
 ### API error format
 
-On errors, the API must return a JSON representation of the error using a non HAL version of the media type [application/vnd.error+json](https://github.com/blongden/vnd.error)
+On errors, the API must return the following JSON object:
 
-TODO: provide JSON example/schema
-
-```json
-{
-  "message": "Validation failed",
-  "path": "/username",
-  "logref": 42,
-}
+```yaml
+ErrorResource:
+  title: Error resource
+  type: object
+  properties:
+    message:
+      type: string
+      description: Descriptive error message (English)
+    logref:
+      type: string
+      description: Unique identifier that is reported in the application log
+    data:
+      type: object
+      description: Specific error data
+    errors:
+      description: Sub-errors array
+      type: array
+      items:
+        type: object
+        properties:
+          path:
+            type: string
+            description: JSON pointer to the invalid property
+          message:
+            type: string
+            description: Descriptive error message (English)
+          data:
+            type: object
+            description: Specific error data
+        required: [path, message]
+  required: [message, logref]
 ```
 
 ### API parameters
@@ -256,6 +316,15 @@ A wildcard same-origin policy is appropriate. Our API's are intended to be acces
 
  * Store and return time values in UTC
  * In JSON documents represent timestamps with ISO 8601/RFC 3339 standards
+
+### Correlation ID
+
+Please, make your API propagate or generate the header **X-Tracing-ID** in down-stream requests. It contains a unique value (typically a UID) that can be used to track and troubleshoot issues in the call chains.
+
+The following apps already support it:
+  * OAuth Server
+  * Configuration Service
+  * Ruby Engine
 
 ### Hypermedia
 
