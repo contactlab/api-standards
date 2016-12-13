@@ -275,6 +275,9 @@ ErrorResource:
           message:
             type: string
             description: Descriptive error message (English)
+          code:
+            type: integer
+            description: Custom error code related to the path
           data:
             type: object
             description: Specific error data
